@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Roblox POC – Debug Login (with Logo)</title>
+
+  <style>
+    /* Page layout */
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 2rem;
+      background: linear-gradient(180deg,#f6f8fb 0%, #eef3f9 100%);
+      color: #111;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 420px;
+      background: #fff;
+      padding: 28px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(18,35,63,0.08);
+    }
+
+    /* Logo */
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 14px;
+    }
+
+    /* Heading & form */
+    h2 {
+      margin: 0 0 14px 0;
+      font-size: 20px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #222;
+    }
+
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      margin: 8px 0 14px 0;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: #9bd1ff;
+      box-shadow: 0 4px 18px rgba(14,116,255,0.08);
+    }
+
+    button.primary {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(90deg,#00aaff 0%,#0088e6 100%);
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button.primary[disabled] {
+      opacity: .6;
+      cursor: not-allowed;
+    }
+
+    .links {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .links a { color: #0077dd; text-decoration: none; }
+
+    /* debug panel */
+    .debug {
+      margin-top: 16px;
+      padding: 12px;
+      background: #0f1724;
+      color: #e6eef8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 280px;
+      overflow: auto;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+
+    .error {
+      color: #b00020;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="react-root" class="container"></div>
+
+  <!-- Inline config -->
+  <script>
+    // change apiUrl if you want to proxy requests locally
+    window.__LOGIN_INITIAL_STATE__ = { apiUrl: "https://auth.roblox.com" };
+  </script>
+
+  <!-- React & ReactDOM (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+  <!-- Babel for quick JSX (dev only) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- App -->
+  <script type="text/babel">
+    const { useState } = React;
+    const config = window.__LOGIN_INITIAL_STATE__ || { apiUrl: "" };
+
+    /* Simple inline SVG logo component (distinct from Roblox, for POC) */
+    function LogoSVG({ size=160 }) {
+      const w = size;
+      const h = Math.round(size * 0.28);
+      return (
+        <svg width={w} height={h} viewBox="0 0 800 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Roblox POC logo">
+          <defs>
+            <linearGradient id="g1" x1="0" x2="1">
+              <stop offset="0" stopColor="#ff7a18" />
+              <stop offset="0.5" stopColor="#ff3d81" />
+              <stop offset="1" stopColor="#7a2cff" />
+            </linearGradient>
+            <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow dx="0" dy="8" stdDeviation="18" floodColor="#000" floodOpacity="0.12"/>
+            </filter>
+          </defs>
+
+          {/* Badge */}
+          <rect x="8" y="10" width="200" height="200" rx="40" fill="url(#g1)" filter="url(#shadow)"/>
+
+          {/* Stylized R-like glyph (unique look) */}
+          <g transform="translate(50,35)" fill="#fff" stroke="none">
+            <path d="M60 0 L140 0 C180 0 210 33 210 72 C210 110 180 140 140 140 L80 140 L40 200 L0 160 L40 100 L60 100 L60 0 Z" opacity="0.98"/>
+          </g>
+
+          {/* Text to the right */}
+          <g transform="translate(240,120)" fill="#0b1220" fontFamily="Inter, Arial, sans-serif" fontWeight="700">
+            <text x="0" y="-10" fontSize="44">Roblox POC</text>
+            <text x="0" y="30" fontSize="14" fill="#394358" fontWeight="600">Debug login — full request/response details</text>
+          </g>
+        </svg>
+      );
+    }
+
+    function LoginPage(){
+      const [user, setUser] = useState("");
+      const [pw, setPw] = useState("");
+      const [error, setError] = useState("");
+      const [debug, setDebug] = useState("");
+      const [loading, setLoading] = useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError("");
+        setDebug("");
+        setLoading(true);
+
+        const username = (user || "").trim();
+        const password = (pw || "").trim();
+
+        if (!username || !password) {
+          setError("Please enter username and password.");
+          setLoading(false);
+          return;
+        }
+
+        let res;
+        try {
+          res = await fetch(`${config.apiUrl}/v2/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+            credentials: "omit"
+          });
+        } catch (networkErr) {
+          setError("Network error: " + networkErr.message);
+          setDebug(networkErr.stack || String(networkErr));
+          setLoading(false);
+          return;
+        }
+
+        // status & headers
+        const status = `${res.status} ${res.statusText}`;
+        let headersText = "";
+        try {
+          res.headers.forEach((v, k) => { headersText += `${k}: ${v}\n`; });
+        } catch(e){ /* ignore */ }
+
+        // body parse
+        let bodyText = "";
+        const ct = res.headers.get("content-type") || "";
+        try {
+          if (ct.includes("application/json")) {
+            const json = await res.json();
+            bodyText = JSON.stringify(json, null, 2);
+          } else {
+            bodyText = await res.text();
+          }
+        } catch (parseErr) {
+          bodyText = "(failed to parse body) " + String(parseErr);
+        }
+
+        setDebug(
+`REQUEST:
+POST ${config.apiUrl}/v2/login
+
+PAYLOAD:
+${JSON.stringify({ username, password }, null, 2)}
+
+RESPONSE STATUS:
+${status}
+
+RESPONSE HEADERS:
+${headersText}
+
+RESPONSE BODY:
+${bodyText}`
+        );
+
+        if (!res.ok) {
+          // try to show server message
+          try {
+            const parsed = JSON.parse(bodyText);
+            setError(parsed.message || `HTTP ${res.status}`);
+          } catch {
+            setError(`HTTP ${res.status}`);
+          }
+        } else {
+          // success — clear sensitive fields before redirect
+          setPw("");
+          // you can perform a redirect or show a success state
+          // for demo we keep you on page and show debug; uncomment to redirect:
+          // window.location = "/";
+        }
+
+        setLoading(false);
+      };
+
+      return (
+        <div>
+          <div className="logo-wrap" aria-hidden="false">
+            <LogoSVG size={160} />
+          </div>
+
+          <h2>Log in to Roblox (Debug)</h2>
+
+          {error && <div className="error" role="alert">{error}</div>}
+
+          <form onSubmit={handleSubmit} aria-describedby="debug-panel">
+            <div>
+              <label htmlFor="username">Username or Email</label>
+              <input
+                id="username"
+                type="text"
+                value={user}
+                onChange={e => setUser(e.target.value)}
+                autoComplete="username"
+                aria-required="true"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={pw}
+                onChange={e => setPw(e.target.value)}
+                autoComplete="current-password"
+                aria-required="true"
+              />
+            </div>
+
+            <div>
+              <button className="primary" type="submit" disabled={loading}>
+                {loading ? "Logging in…" : "Log In"}
+              </button>
+            </div>
+          </form>
+
+          <div className="links" style={{marginTop:12}}>
+            <a href="/help/forgot-password">Forgot Password?</a> ·
+            <a href="/signup.html" style={{marginLeft:8}}>Sign up</a>
+          </div>
+
+          {debug && <div id="debug-panel" className="debug" aria-live="polite">{debug}</div>}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<LoginPage />, document.getElementById('react-root'));
+  </script>
+</body>
+</html>
